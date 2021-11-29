@@ -47,7 +47,6 @@ import {
 import { clusterApiUrl, Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
 import * as borsh from "borsh";
 import { Button } from "@solana/wallet-adapter-react-ui/lib/Button";
-import "./TypeWriterCursor.css";
 
 // Default styles that can be overridden by your app
 require("@solana/wallet-adapter-react-ui/styles.css");
