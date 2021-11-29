@@ -1,13 +1,35 @@
-import React, {useMemo, useCallback} from 'react';
-import {WalletNotConnectedError} from '@solana/wallet-adapter-base';
-import {useConnection, useWallet} from '@solana/wallet-adapter-react';
-import {SystemProgram, Transaction} from '@solana/web3.js';
-import {ConnectionProvider, WalletProvider} from '@solana/wallet-adapter-react';
-import {WalletAdapterNetwork} from '@solana/wallet-adapter-base';
-import bs58 from 'bs58';
-import {sign} from 'tweetnacl';
-import Typewriter from 'typewriter-effect';
-import {PublicKey, TransactionInstruction} from '@solana/web3.js';
+import React, { useMemo, useCallback } from "react";
+import Box from "@mui/material/Box";
+import TextField from "@mui/material/TextField";
+import { WalletNotConnectedError } from "@solana/wallet-adapter-base";
+import { default as MButton } from "@mui/material/Button";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import {
+  initAccount,
+  SwitchboardAccountType,
+  createOwnedStateAccount,
+  SWITCHBOARD_DEVNET_PID,
+  SwitchboardInstruction,
+  VrfAccountData,
+  publishSwitchboardAccount,
+  createVrfAccount,
+  parseVrfAccountData,
+  requestRandomness,
+} from "@switchboard-xyz/switchboard-api";
+import {
+  SystemProgram,
+  Transaction,
+  SYSVAR_RENT_PUBKEY,
+} from "@solana/web3.js";
+import {
+  ConnectionProvider,
+  WalletProvider,
+} from "@solana/wallet-adapter-react";
+import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
+import bs58 from "bs58";
+import { sign } from "tweetnacl";
+import Typewriter from "typewriter-effect";
+import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import {
   getLedgerWallet,
   getPhantomWallet,
@@ -16,20 +38,21 @@ import {
   getSolletExtensionWallet,
   getSolletWallet,
   getTorusWallet,
-} from '@solana/wallet-adapter-wallets';
+} from "@solana/wallet-adapter-wallets";
 import {
   WalletModalProvider,
   WalletDisconnectButton,
   WalletMultiButton,
-} from '@solana/wallet-adapter-react-ui';
-import {clusterApiUrl, Connection, LAMPORTS_PER_SOL} from '@solana/web3.js';
-import * as borsh from 'borsh';
-import {Button} from '@solana/wallet-adapter-react-ui/lib/Button';
+} from "@solana/wallet-adapter-react-ui";
+import { clusterApiUrl, Connection, LAMPORTS_PER_SOL } from "@solana/web3.js";
+import * as borsh from "borsh";
+import { Button } from "@solana/wallet-adapter-react-ui/lib/Button";
+import "./TypeWriterCursor.css";
 
 // Default styles that can be overridden by your app
-require('@solana/wallet-adapter-react-ui/styles.css');
+require("@solana/wallet-adapter-react-ui/styles.css");
 
-const PROGRAM_ID = 'DW6HET1JQjkMsszJK1pXdJWhs6enSYBgyMXq9zz4qtzP';
+const PROGRAM_ID = "6f5rui9XC6MufttQVqLN8ukzd4wXzreJATEBFxgcJ6Ui";
 const RANDOM_MAX = 1000;
 
 class GreetingAccount {
@@ -44,10 +67,10 @@ const GreetingSchema = new Map([
   [
     GreetingAccount,
     {
-      kind: 'struct',
+      kind: "struct",
       fields: [
-        ['counter', 'u32'],
-        ['random', 'u32'],
+        ["counter", "u32"],
+        ["random", "u32"],
       ],
     },
   ],
@@ -59,24 +82,24 @@ class HelloAccount {
   }
 }
 const HelloSchema = new Map([
-  [HelloAccount, {kind: 'struct', fields: [['counter', 'u32']]}],
+  [HelloAccount, { kind: "struct", fields: [["counter", "u32"]] }],
 ]);
 
 const GREETING_SIZE = borsh.serialize(
   GreetingSchema,
-  new GreetingAccount(),
+  new GreetingAccount()
 ).length;
 
 let connection = null;
 
 const establishConnection = async () => {
-  const rpcUrl = 'https://api.devnet.solana.com';
-  connection = new Connection(rpcUrl, 'confirmed');
+  const rpcUrl = "https://api.devnet.solana.com";
+  connection = new Connection(rpcUrl, "confirmed");
   const version = await connection.getVersion();
-  console.log('Connection to cluster established:', rpcUrl, version);
+  console.log("Connection to cluster established:", rpcUrl, version);
 };
 
-const establishPayer = async publicKey => {
+const establishPayer = async (publicKey) => {
   let fees = 0;
   // if (!payer) {
   //   const {feeCalculator} = await connection.getRecentBlockhash();
@@ -98,11 +121,11 @@ const establishPayer = async publicKey => {
   }
 
   console.log(
-    'Using account',
+    "Using account",
     publicKey.toBase58(),
-    'containing',
+    "containing",
     lamports / LAMPORTS_PER_SOL,
-    'SOL to pay for fees',
+    "SOL to pay for fees"
   );
 };
 
@@ -114,26 +137,26 @@ const checkProgram = async (payerPublicKey, sendTransaction) => {
 
   const programInfo = await connection.getAccountInfo(programId);
   if (programInfo === null) {
-    throw new Error('Program get fail');
+    throw new Error("Program get fail");
   } else if (!programInfo.executable) {
     throw new Error(`Program is not executable`);
   }
   console.log(`Using program ${programId.toBase58()}`);
 
   // Derive the address (public key) of a greeting account from the program so that it's easy to find later.
-  const GREETING_SEED = 'hello';
+  const GREETING_SEED = "hello";
   const greetedPubkey = await PublicKey.createWithSeed(
     payerPublicKey,
     GREETING_SEED,
-    programId,
+    programId
   );
 
   // Check if the greeting account has already been created
   const greetedAccount = await connection.getAccountInfo(greetedPubkey);
   if (greetedAccount === null) {
-    console.log('Creating account', greetedPubkey.toBase58());
+    console.log("Creating account", greetedPubkey.toBase58());
     const lamports = await connection.getMinimumBalanceForRentExemption(
-      GREETING_SIZE,
+      GREETING_SIZE
     );
 
     const transaction = new Transaction().add(
@@ -145,12 +168,12 @@ const checkProgram = async (payerPublicKey, sendTransaction) => {
         lamports,
         space: GREETING_SIZE,
         programId,
-      }),
+      })
     );
 
     const signature = await sendTransaction(transaction, connection);
 
-    await connection.confirmTransaction(signature, 'processed');
+    await connection.confirmTransaction(signature, "processed");
   }
 };
 
@@ -244,9 +267,17 @@ const getGreeting = async (seed, publicKey, programId) => {
   return await PublicKey.createWithSeed(publicKey, seed, programId);
 };
 
-const SendRequestForLottery = () => {
-  const {connection} = useConnection();
-  const {publicKey, sendTransaction} = useWallet();
+function getRandom(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+const getRamdonContent = (contents) => {
+  return contents[getRandom(0, contents.length - 1)];
+};
+
+const SendRequestForLottery = ({ showLottery, lotteryContent }) => {
+  const { connection } = useConnection();
+  const { publicKey, sendTransaction } = useWallet();
 
   const onClick = useCallback(async () => {
     if (!publicKey) return;
@@ -264,12 +295,27 @@ const SendRequestForLottery = () => {
 
     setTimeout(async () => {
       const programId = new PublicKey(PROGRAM_ID);
-      const greetedPubkey = await getGreeting('hello', publicKey, programId);
+      const greetedPubkey = await getGreeting("hello", publicKey, programId);
 
       const helloAccount = new HelloAccount(RANDOM_MAX);
       const hello = borsh.serialize(HelloSchema, helloAccount);
+
+      // let vrfAccount = await createVrfAccount(connection, payerAccount, PID);
+      const oraclePublicKey = new PublicKey(
+        "HZGjXArakPuCFmxC9ajuDgwgY6vLY269jYoQF4z311jD"
+      );
+      console.log("yorklog0", oraclePublicKey.toString());
+      console.log("yorklog", SYSVAR_RENT_PUBKEY.toString());
+
       const instruction = new TransactionInstruction({
-        keys: [{pubkey: greetedPubkey, isSigner: false, isWritable: true}],
+        keys: [
+          { pubkey: greetedPubkey, isSigner: false, isWritable: true },
+          {
+            pubkey: oraclePublicKey,
+            isSigner: false,
+            isWritable: true,
+          },
+        ],
         programId,
         data: Buffer.from(hello),
       });
@@ -278,53 +324,65 @@ const SendRequestForLottery = () => {
 
       const signature = await sendTransaction(transaction, connection);
 
-      await connection.confirmTransaction(signature, 'processed');
+      await connection.confirmTransaction(signature, "processed");
 
       await reportGreetings(publicKey);
     }, 2000);
   }, [publicKey, sendTransaction, connection]);
 
-  return (
+  return showLottery ? (
     <div>
       <Typewriter
-        style={{'font-size': '100vw'}}
-        onInit={typewriter => {
+        onInit={(typewriter) => {
           typewriter
-            .typeString('Solana Program 運行中...')
-            .pauseFor(2500)
+            .typeString(createTypewriterString("Solana Program 運行中..."))
+            .pauseFor(1500)
             .deleteAll()
-            .typeString('下一位演講者是...')
-            .pauseFor(2500)
+            .typeString(createTypewriterString("抽獎結果是..."))
+            .pauseFor(1500)
             .deleteAll()
+            .typeString(
+              createTypewriterString(`${getRamdonContent(lotteryContent)}!`)
+            )
             .callFunction(() => {
-              console.log('All strings were deleted');
+              console.log("All strings were deleted");
             })
             .start();
         }}
       />
-      <button onClick={onClick}>進行抽籤</button>
     </div>
+  ) : (
+    <div />
   );
 };
 
-const reportGreetings = async publicKey => {
+const createTypewriterString = (text, color) => {
+  const colors = ["#8ECAE6", "#219EBC", "#023047", "#FFB703", "#FB8500"];
+  if (!color) {
+    color = colors[getRandom(0, colors.length - 1)];
+  }
+  console.log("yorkaqwe", color);
+  return `<span style="color: ${color}; font-size: 7vw">${text}</span>`;
+};
+
+const reportGreetings = async (publicKey) => {
   const programId = new PublicKey(PROGRAM_ID);
-  const greetedPubkey = await getGreeting('hello', publicKey, programId);
+  const greetedPubkey = await getGreeting("hello", publicKey, programId);
   const accountInfo = await connection.getAccountInfo(greetedPubkey);
   if (accountInfo === null) {
-    throw new Error('Error: cannot find the greeted account');
+    throw new Error("Error: cannot find the greeted account");
   }
   const greeting = borsh.deserialize(
     GreetingSchema,
     GreetingAccount,
-    accountInfo.data,
+    accountInfo.data
   );
   console.log(
     greetedPubkey.toBase58(),
-    'time(s):',
+    "time(s):",
     greeting.counter,
-    'random:',
-    greeting.random,
+    "random:",
+    greeting.random
   );
   return greeting.random;
 };
@@ -344,14 +402,23 @@ function Main() {
       getSlopeWallet(),
       getSolflareWallet(),
       getTorusWallet({
-        options: {clientId: 'Get a client ID @ https://developer.tor.us'},
+        options: { clientId: "Get a client ID @ https://developer.tor.us" },
       }),
       getLedgerWallet(),
-      getSolletWallet({network}),
-      getSolletExtensionWallet({network}),
+      getSolletWallet({ network }),
+      getSolletExtensionWallet({ network }),
     ],
-    [network],
+    [network]
   );
+
+  const [value, setValue] = React.useState("Controlled");
+
+  const handleChange = (event) => {
+    setValue(event.target.value);
+  };
+
+  const [showLottery, setShowLottery] = React.useState(false);
+  const [lotteryContent, setLotteryContent] = React.useState("");
 
   return (
     <ConnectionProvider endpoint={endpoint}>
@@ -360,12 +427,64 @@ function Main() {
           {/* <WalletDisconnectButton /> */}
           {/* <SignMessageButton /> */}
           {/* <SignTransactionButton /> */}
-          <SendRequestForLottery />
-          <WalletMultiButton />
+          <SendRequestForLottery
+            showLottery={showLottery}
+            lotteryContent={lotteryContent}
+          />
+          <StartLottery
+            showLottery={showLottery}
+            setShowLottery={setShowLottery}
+            setLotteryContent={setLotteryContent}
+          />
+          {/* <WalletMultiButton /> */}
         </WalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>
   );
 }
+
+const InputText = ({ setValue }) => {
+  return (
+    <Box
+      component="form"
+      sx={{
+        "& .MuiTextField-root": { m: 1, width: "70ch" },
+      }}
+      noValidate
+      autoComplete="off"
+    >
+      <div>
+        <TextField
+          id="filled-multiline-static"
+          multiline
+          rows={6}
+          variant="filled"
+          onChange={(e) => {
+            setValue(JSON.parse(e.target.value));
+          }}
+        />
+      </div>
+    </Box>
+  );
+};
+
+const StartLottery = ({ showLottery, setShowLottery, setLotteryContent }) => {
+  const onClick = useCallback(() => {
+    setShowLottery(true);
+  });
+
+  console.log("yorkfghuio", setLotteryContent);
+
+  return showLottery ? (
+    <div />
+  ) : (
+    <div>
+      <InputText setValue={setLotteryContent} />
+      <MButton variant="contained" onClick={onClick}>
+        進行抽籤
+      </MButton>
+    </div>
+  );
+};
 
 export default Main;
