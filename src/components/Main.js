@@ -441,7 +441,7 @@ function Main() {
   // -1: default
   const [randomNumber, setRandomNumber] = React.useState(-1);
   const [lotteryContent, setLotteryContent] = React.useState(
-    lotteryContentFromQuery
+    JSON.parse(lotteryContentFromQuery)
   );
   // "": default, "frontend": frontend, "chain": chain
   const [lotteryWay, setLotteryWay] = React.useState("");
