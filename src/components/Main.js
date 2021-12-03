@@ -1,33 +1,15 @@
-import React, { useMemo, useCallback } from "react";
+import React, { useMemo, useCallback, useEffect } from "react";
 import Box from "@mui/material/Box";
 import TextField from "@mui/material/TextField";
-import { WalletNotConnectedError } from "@solana/wallet-adapter-base";
 import { default as MButton } from "@mui/material/Button";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import {
-  initAccount,
-  SwitchboardAccountType,
-  createOwnedStateAccount,
-  SWITCHBOARD_DEVNET_PID,
-  SwitchboardInstruction,
-  VrfAccountData,
-  publishSwitchboardAccount,
-  createVrfAccount,
-  parseVrfAccountData,
-  requestRandomness,
-} from "@switchboard-xyz/switchboard-api";
-import {
-  SystemProgram,
-  Transaction,
-  SYSVAR_RENT_PUBKEY,
-} from "@solana/web3.js";
+import Grid from "@mui/material/Grid";
+import { SystemProgram, Transaction } from "@solana/web3.js";
 import {
   ConnectionProvider,
   WalletProvider,
 } from "@solana/wallet-adapter-react";
 import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
-import bs58 from "bs58";
-import { sign } from "tweetnacl";
 import Typewriter from "typewriter-effect";
 import { PublicKey, TransactionInstruction } from "@solana/web3.js";
 import {
@@ -51,8 +33,13 @@ import { Button } from "@solana/wallet-adapter-react-ui/lib/Button";
 // Default styles that can be overridden by your app
 require("@solana/wallet-adapter-react-ui/styles.css");
 
-const PROGRAM_ID = "6f5rui9XC6MufttQVqLN8ukzd4wXzreJATEBFxgcJ6Ui";
-const RANDOM_MAX = 1000;
+// devnet production
+const PROGRAM_ID = "JA6TgMfnxhRFuDuAfsinkgMuxWk7Kmy6EQrwZ3Psb1in";
+const RPC_URL = "https://api.devnet.solana.com";
+
+// devnet test
+// const PROGRMA_ID = "3dAAsmoJKWzvuaWhjcUXKmE3V2eAicokxYDQdtc5pNpa";
+// const RPC_URL = "https://api.devnet.solana.com";
 
 class GreetingAccount {
   random = 0;
@@ -74,14 +61,26 @@ const GreetingSchema = new Map([
     },
   ],
 ]);
-class HelloAccount {
-  counter = 0;
-  constructor(counter) {
+class InstructionData {
+  constructor(counter, lottery_content) {
+    if (!lottery_content) {
+      lottery_content = "";
+    }
     this.counter = counter;
+    this.lottery_content = lottery_content;
   }
 }
-const HelloSchema = new Map([
-  [HelloAccount, { kind: "struct", fields: [["counter", "u32"]] }],
+const instructionDataSchema = new Map([
+  [
+    InstructionData,
+    {
+      kind: "struct",
+      fields: [
+        ["counter", "u32"],
+        ["lottery_content", "string"],
+      ],
+    },
+  ],
 ]);
 
 const GREETING_SIZE = borsh.serialize(
@@ -89,10 +88,15 @@ const GREETING_SIZE = borsh.serialize(
   new GreetingAccount()
 ).length;
 
+const INSTRUCTION_SIZE = borsh.serialize(
+  instructionDataSchema,
+  new InstructionData()
+).length;
+
 let connection = null;
 
 const establishConnection = async () => {
-  const rpcUrl = "https://api.devnet.solana.com";
+  const rpcUrl = RPC_URL;
   connection = new Connection(rpcUrl, "confirmed");
   const version = await connection.getVersion();
   console.log("Connection to cluster established:", rpcUrl, version);
@@ -222,45 +226,67 @@ const checkProgram = async (payerPublicKey, sendTransaction) => {
 //   ) : null;
 // }
 
-// function SignTransactionButton() {
-//   const {publicKey, sendTransaction, connection} = useWallet();
+const sendTransactionToProgram = async (
+  publicKey,
+  sendTransaction,
+  connection,
+  letteryContent
+) => {
+  // try {
+  //   // `publicKey` will be null if the wallet isn't connected
+  //   if (!publicKey) throw new Error("Wallet not connected!");
+  //   // `signMessage` will be undefined if the wallet doesn't support it
+  //   if (!sendTransaction)
+  //     throw new Error("Wallet does not support message signing!");
 
-//   const onClick = useCallback(async () => {
-//     try {
-//       // `publicKey` will be null if the wallet isn't connected
-//       if (!publicKey) throw new Error('Wallet not connected!');
-//       // `signMessage` will be undefined if the wallet doesn't support it
-//       if (!sendTransaction)
-//         throw new Error('Wallet does not support message signing!');
+  //   const programId = new PublicKey(PROGRAM_ID);
+  //   const GREETING_SEED = "hello";
+  //   const greetedPubkey = await PublicKey.createWithSeed(
+  //     publicKey,
+  //     GREETING_SEED,
+  //     programId
+  //   );
 
-//       const programId = new PublicKey(PROGRAM_ID);
-//       const GREETING_SEED = 'hello';
-//       const greetedPubkey = await PublicKey.createWithSeed(
-//         publicKey,
-//         GREETING_SEED,
-//         programId,
-//       );
+  //   const instructionData = new InstructionData(RANDOM_MAX);
+  //   const hello = borsh.serialize(instructionDataSchema, instructionData);
+  //   const instruction = new TransactionInstruction({
+  //     keys: [{ pubkey: greetedPubkey, isSigner: false, isWritable: true }],
+  //     programId,
+  //     data: Buffer.from(hello),
+  //   });
 
-//       const helloAccount = new HelloAccount(RANDOM_MAX);
-//       const hello = borsh.serialize(HelloSchema, helloAccount);
-//       const instruction = new TransactionInstruction({
-//         keys: [{pubkey: greetedPubkey, isSigner: false, isWritable: true}],
-//         programId,
-//         data: Buffer.from(hello),
-//       });
+  //   await sendTransaction(new Transaction().add(instruction), connection);
+  // } catch (error) {
+  //   console.error(`Signing failed: ${error?.message}`);
+  // }
+  try {
+    if (!publicKey) throw new Error("Wallet not connected");
+    if (!sendTransaction)
+      throw new Error("Wallet does not support message signing");
 
-//       await sendTransaction(new Transaction().add(instruction), connection);
-//     } catch (error) {
-//       alert(`Signing failed: ${error?.message}`);
-//     }
-//   }, [publicKey, sendTransaction, connection]);
+    const programId = new PublicKey(PROGRAM_ID);
+    const greetedPubkey = await getGreeting("hello", publicKey, programId);
 
-//   return sendTransaction ? (
-//     <button onClick={onClick} disabled={!publicKey}>
-//       Sign Transaction
-//     </button>
-//   ) : null;
-// }
+    const instructionData = new InstructionData(
+      letteryContent.length,
+      JSON.stringify(letteryContent)
+    );
+    const hello = borsh.serialize(instructionDataSchema, instructionData);
+
+    const instruction = new TransactionInstruction({
+      keys: [{ pubkey: greetedPubkey, isSigner: false, isWritable: true }],
+      programId,
+      data: Buffer.from(hello),
+    });
+
+    let transaction = new Transaction().add(instruction);
+    const signature = await sendTransaction(transaction, connection);
+
+    return signature;
+  } catch (error) {
+    console.error(`Signing failed: ${error?.message}`);
+  }
+};
 
 const getGreeting = async (seed, publicKey, programId) => {
   return await PublicKey.createWithSeed(publicKey, seed, programId);
@@ -270,16 +296,31 @@ function getRandom(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-const getRamdonContent = (contents) => {
-  return contents[getRandom(0, contents.length - 1)];
+const getRamdonContentNumber = (contents) => {
+  return getRandom(1, contents.length);
 };
 
-const SendRequestForLottery = ({ showLottery, lotteryContent }) => {
+const isSetRandomNumber = (randomNumber) => randomNumber !== -1;
+
+const SendRequestForLottery = ({
+  showLottery,
+  lotteryContent,
+  lotteryWay,
+  setShowLottery,
+  randomNumber,
+  setRandomNumber,
+}) => {
   const { connection } = useConnection();
   const { publicKey, sendTransaction } = useWallet();
 
-  const onClick = useCallback(async () => {
-    if (!publicKey) return;
+  useMemo(async () => {
+    if (
+      !publicKey ||
+      !connection ||
+      !isChainLotteryWay(lotteryWay) ||
+      isSetRandomNumber(randomNumber)
+    )
+      return;
 
     console.log(`- 取得payer public key: ${publicKey}`);
 
@@ -292,44 +333,34 @@ const SendRequestForLottery = ({ showLottery, lotteryContent }) => {
     console.log(`- 檢查program...`);
     await checkProgram(publicKey, sendTransaction);
 
-    setTimeout(async () => {
-      const programId = new PublicKey(PROGRAM_ID);
-      const greetedPubkey = await getGreeting("hello", publicKey, programId);
+    const signature = await sendTransactionToProgram(
+      publicKey,
+      sendTransaction,
+      connection,
+      lotteryContent
+    );
 
-      const helloAccount = new HelloAccount(RANDOM_MAX);
-      const hello = borsh.serialize(HelloSchema, helloAccount);
+    await connection.confirmTransaction(signature, "processed");
 
-      // let vrfAccount = await createVrfAccount(connection, payerAccount, PID);
-      const oraclePublicKey = new PublicKey(
-        "HZGjXArakPuCFmxC9ajuDgwgY6vLY269jYoQF4z311jD"
-      );
-      console.log("yorklog0", oraclePublicKey.toString());
-      console.log("yorklog", SYSVAR_RENT_PUBKEY.toString());
+    const { random } = await getRandomData(publicKey);
 
-      const instruction = new TransactionInstruction({
-        keys: [
-          { pubkey: greetedPubkey, isSigner: false, isWritable: true },
-          {
-            pubkey: oraclePublicKey,
-            isSigner: false,
-            isWritable: true,
-          },
-        ],
-        programId,
-        data: Buffer.from(hello),
-      });
+    console.log(`- random number: ${random}`);
 
-      let transaction = new Transaction().add(instruction);
+    setRandomNumber(random);
 
-      const signature = await sendTransaction(transaction, connection);
+    setShowLottery(true);
+  }, [
+    publicKey,
+    sendTransaction,
+    connection,
+    lotteryWay,
+    setRandomNumber,
+    setShowLottery,
+    randomNumber,
+    lotteryContent,
+  ]);
 
-      await connection.confirmTransaction(signature, "processed");
-
-      await reportGreetings(publicKey);
-    }, 2000);
-  }, [publicKey, sendTransaction, connection]);
-
-  return showLottery ? (
+  return showLottery && isSetRandomNumber(randomNumber) ? (
     <div>
       <Typewriter
         onInit={(typewriter) => {
@@ -337,11 +368,11 @@ const SendRequestForLottery = ({ showLottery, lotteryContent }) => {
             .typeString(createTypewriterString("Solana Program 運行中..."))
             .pauseFor(1500)
             .deleteAll()
-            .typeString(createTypewriterString("抽獎結果是..."))
+            .typeString(createTypewriterString("抽出的結果是..."))
             .pauseFor(1500)
             .deleteAll()
             .typeString(
-              createTypewriterString(`${getRamdonContent(lotteryContent)}!`)
+              createTypewriterString(`${lotteryContent[randomNumber - 1]}!`)
             )
             .callFunction(() => {
               console.log("All strings were deleted");
@@ -360,11 +391,10 @@ const createTypewriterString = (text, color) => {
   if (!color) {
     color = colors[getRandom(0, colors.length - 1)];
   }
-  console.log("yorkaqwe", color);
   return `<span style="color: ${color}; font-size: 7vw">${text}</span>`;
 };
 
-const reportGreetings = async (publicKey) => {
+const getRandomData = async (publicKey) => {
   const programId = new PublicKey(PROGRAM_ID);
   const greetedPubkey = await getGreeting("hello", publicKey, programId);
   const accountInfo = await connection.getAccountInfo(greetedPubkey);
@@ -376,14 +406,8 @@ const reportGreetings = async (publicKey) => {
     GreetingAccount,
     accountInfo.data
   );
-  console.log(
-    greetedPubkey.toBase58(),
-    "time(s):",
-    greeting.counter,
-    "random:",
-    greeting.random
-  );
-  return greeting.random;
+
+  return greeting.counter;
 };
 
 function Main() {
@@ -410,39 +434,56 @@ function Main() {
     [network]
   );
 
-  const [value, setValue] = React.useState("Controlled");
-
-  const handleChange = (event) => {
-    setValue(event.target.value);
-  };
+  let queryFromURL = getQueryFromURL();
+  const lotteryContentFromQuery = queryFromURL.get("lotteryContent");
 
   const [showLottery, setShowLottery] = React.useState(false);
-  const [lotteryContent, setLotteryContent] = React.useState("");
+  // -1: default
+  const [randomNumber, setRandomNumber] = React.useState(-1);
+  const [lotteryContent, setLotteryContent] = React.useState(
+    lotteryContentFromQuery
+  );
+  // "": default, "frontend": frontend, "chain": chain
+  const [lotteryWay, setLotteryWay] = React.useState("");
 
   return (
     <ConnectionProvider endpoint={endpoint}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
-          {/* <WalletDisconnectButton /> */}
           {/* <SignMessageButton /> */}
           {/* <SignTransactionButton /> */}
           <SendRequestForLottery
             showLottery={showLottery}
             lotteryContent={lotteryContent}
-          />
-          <StartLottery
-            showLottery={showLottery}
+            lotteryWay={lotteryWay}
             setShowLottery={setShowLottery}
-            setLotteryContent={setLotteryContent}
+            randomNumber={randomNumber}
+            setRandomNumber={setRandomNumber}
           />
-          {/* <WalletMultiButton /> */}
+          {!isSetLotteryWay(lotteryWay) ? (
+            <StartLottery
+              setShowLottery={setShowLottery}
+              lotteryContent={lotteryContent}
+              showLottery={showLottery}
+              setLotteryContent={setLotteryContent}
+              setLotteryWay={setLotteryWay}
+              setRandomNumber={setRandomNumber}
+              defaultInput={lotteryContentFromQuery}
+            />
+          ) : null}
+          {isChainLotteryWay(lotteryWay) ? (
+            <Grid container justifyContent="center" spacing={2}>
+              <WalletMultiButton />
+              <WalletDisconnectButton />
+            </Grid>
+          ) : null}
         </WalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>
   );
 }
 
-const InputText = ({ setValue }) => {
+const InputText = ({ setValue, defaultInput }) => {
   return (
     <Box
       component="form"
@@ -458,6 +499,7 @@ const InputText = ({ setValue }) => {
           multiline
           rows={6}
           variant="filled"
+          defaultValue={defaultInput}
           onChange={(e) => {
             setValue(JSON.parse(e.target.value));
           }}
@@ -467,23 +509,61 @@ const InputText = ({ setValue }) => {
   );
 };
 
-const StartLottery = ({ showLottery, setShowLottery, setLotteryContent }) => {
-  const onClick = useCallback(() => {
+const setChainLotteryWay = (setLotteryWay) => {
+  setLotteryWay("chain");
+};
+
+const setFrontendLotteryWay = (setLotteryWay) => {
+  setLotteryWay("frontend");
+};
+
+const isChainLotteryWay = (lotteryWay) => {
+  return lotteryWay === "chain";
+};
+
+const isSetLotteryWay = (lotteryWay) => {
+  return lotteryWay !== "";
+};
+
+const isFrontendLotteryWay = (lotteryWay) => {
+  return lotteryWay === "frontend";
+};
+
+const StartLottery = ({
+  lotteryContent,
+  showLottery,
+  setLotteryContent,
+  setLotteryWay,
+  setRandomNumber,
+  setShowLottery,
+  defaultInput,
+}) => {
+  const onClickForFrontendLottery = useCallback(() => {
+    setFrontendLotteryWay(setLotteryWay);
+    setRandomNumber(getRamdonContentNumber(lotteryContent));
     setShowLottery(true);
   });
 
-  console.log("yorkfghuio", setLotteryContent);
+  const onClickForChainLottery = useCallback(() => {
+    setChainLotteryWay(setLotteryWay);
+  });
 
-  return showLottery ? (
-    <div />
-  ) : (
+  return showLottery ? null : (
     <div>
-      <InputText setValue={setLotteryContent} />
-      <MButton variant="contained" onClick={onClick}>
-        進行抽籤
+      <InputText setValue={setLotteryContent} defaultInput={defaultInput} />
+      <MButton variant="contained" onClick={onClickForChainLottery}>
+        基於鏈上抽
+      </MButton>{" "}
+      <MButton variant="contained" onClick={onClickForFrontendLottery}>
+        基於前端抽
       </MButton>
     </div>
   );
+};
+
+const getQueryFromURL = () => {
+  let urlParams = new URLSearchParams(window.location.search);
+  return urlParams;
 };
 
 export default Main;
